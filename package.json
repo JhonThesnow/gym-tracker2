@@ -1,0 +1,16 @@
+{
+  "name": "gym-tracker",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run server --prefix server\" \"npm run dev --prefix client\"",
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
