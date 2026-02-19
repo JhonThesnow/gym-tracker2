@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Dumbbell, Calendar, BarChart3, Settings } from 'lucide-react';
+import { Dumbbell, Calendar, BarChart3, Settings, Book } from 'lucide-react';
 
 const NavItem = ({ to, icon: Icon, label, active }) => (
     <Link
@@ -20,7 +20,7 @@ export default function Layout({ children }) {
         { to: '/', icon: Dumbbell, label: 'Entrenar' },
         { to: '/programs', icon: Calendar, label: 'Programas' },
         { to: '/history', icon: BarChart3, label: 'Historial' },
-        // { to: '/settings', icon: Settings, label: 'Ajustes' },
+        { to: '/exercises', icon: Book, label: 'Índice' }, // <--- Nuevo Item
     ];
 
     return (

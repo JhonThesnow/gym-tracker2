@@ -1,7 +1,6 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-// Nos aseguramos de conectar al archivo correcto
 const db = new Database(path.resolve(__dirname, 'gym.db'), { verbose: console.log });
 db.pragma('journal_mode = WAL');
 
@@ -34,7 +33,12 @@ const initScript = `
     name TEXT NOT NULL,
     target_sets INTEGER DEFAULT 3,
     target_reps TEXT,
-    target_weight REAL,
+    
+    -- CAMBIOS PARA EL SISTEMA DE CARGAS
+    load_type TEXT DEFAULT 'kg', -- 'kg' o 'percent'
+    target_value REAL,           -- Guardará el Peso (si es kg) o el Porcentaje (si es %)
+    rest_seconds INTEGER DEFAULT 90, -- Tiempo de descanso sugerido
+    
     target_rpe REAL,
     notes TEXT,
     exercise_order INTEGER,
@@ -59,8 +63,32 @@ const initScript = `
     is_completed BOOLEAN DEFAULT 0,
     FOREIGN KEY(workout_log_id) REFERENCES workout_logs(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS exercise_library (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    one_rep_max REAL DEFAULT 0 -- NUEVO: Para guardar el 1RM global
+  );
+
+  CREATE TABLE IF NOT EXISTS exercise_muscles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    exercise_id INTEGER,
+    muscle_name TEXT NOT NULL,
+    percentage INTEGER DEFAULT 100,
+    FOREIGN KEY(exercise_id) REFERENCES exercise_library(id) ON DELETE CASCADE
+  );
 `;
 
 db.exec(initScript);
+
+// Migración simple por si ya tienes la DB creada (evita errores)
+try {
+  db.exec("ALTER TABLE exercises ADD COLUMN load_type TEXT DEFAULT 'kg'");
+  db.exec("ALTER TABLE exercises ADD COLUMN target_value REAL");
+  db.exec("ALTER TABLE exercises ADD COLUMN rest_seconds INTEGER DEFAULT 90");
+  db.exec("ALTER TABLE exercise_library ADD COLUMN one_rep_max REAL DEFAULT 0");
+} catch (e) {
+  // Ignoramos error si las columnas ya existen
+}
 
 module.exports = db;
