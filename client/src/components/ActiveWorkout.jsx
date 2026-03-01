@@ -1,53 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Timer, Check, Plus, Save, ArrowLeft, Trash2, Edit2, Play, Pause, RotateCcw, History, X, Dumbbell } from 'lucide-react';
-
-// --- MODAL AGREGAR EJERCICIO ---
-const ExerciseModal = ({ isOpen, onClose, onSave }) => {
-    const [formData, setFormData] = useState({ name: '', target_sets: 3, target_reps: '8-12', target_weight: '', target_rpe: '' });
-    const [library, setLibrary] = useState([]);
-
-    useEffect(() => {
-        if (isOpen) {
-            fetch('/api/library/exercises').then(res => res.json()).then(data => setLibrary(data)).catch(console.error);
-        }
-    }, [isOpen]);
-
-    if (!isOpen) return null;
-
-    return (
-        <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-[100] backdrop-blur-md animate-fade-in">
-            <div className="bg-surface border border-gray-700 p-6 rounded-3xl w-full max-w-sm shadow-2xl relative">
-                <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-800 rounded-full text-gray-400 hover:text-white"><X size={20} /></button>
-                <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-2"><Dumbbell className="text-primary" /> Agregar</h3>
-                <form onSubmit={(e) => { e.preventDefault(); onSave(formData); }} className="space-y-5">
-                    <div>
-                        <label className="block text-xs text-gray-500 mb-2 uppercase font-bold tracking-wider">Ejercicio</label>
-                        <input required autoFocus list="modal-lib" className="w-full bg-background border border-gray-700 rounded-xl p-4 text-white focus:border-primary outline-none font-bold text-lg"
-                            placeholder="Nombre..." value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
-                        <datalist id="modal-lib">{library.map(ex => <option key={ex.id} value={ex.name} />)}</datalist>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div><label className="block text-xs text-gray-500 mb-2 uppercase font-bold">Sets</label><input type="number" className="w-full bg-background border border-gray-700 rounded-xl p-3 text-center text-white font-bold" value={formData.target_sets} onChange={e => setFormData({ ...formData, target_sets: e.target.value })} /></div>
-                        <div><label className="block text-xs text-gray-500 mb-2 uppercase font-bold">Reps</label><input className="w-full bg-background border border-gray-700 rounded-xl p-3 text-center text-white font-bold" value={formData.target_reps} onChange={e => setFormData({ ...formData, target_reps: e.target.value })} /></div>
-                    </div>
-                    <div><label className="block text-xs text-gray-500 mb-2 uppercase font-bold">RPE (Opcional)</label><input type="number" step="0.5" className="w-full bg-background border border-gray-700 rounded-xl p-3 text-center text-white font-bold" placeholder="-" value={formData.target_rpe} onChange={e => setFormData({ ...formData, target_rpe: e.target.value })} /></div>
-                    <button type="submit" className="w-full bg-primary hover:bg-blue-600 text-white p-4 rounded-xl font-bold mt-2 shadow-lg shadow-blue-500/30 transform active:scale-95 transition-all">Agregar a la Rutina</button>
-                </form>
-            </div>
-        </div>
-    );
-};
+import { Timer, Check, Plus, Save, ArrowLeft, Trash2, Edit2, Play, Pause, RotateCcw, X } from 'lucide-react';
+import ExerciseConfigModal from './ExerciseConfigModal';
 
 export default function ActiveWorkout({ dayData, onFinish }) {
     const [exercises, setExercises] = useState([]);
     const [sessionData, setSessionData] = useState({});
     const [editingExerciseId, setEditingExerciseId] = useState(null);
     const [isReviewMode, setIsReviewMode] = useState(false);
+
     const [modalOpen, setModalOpen] = useState(false);
+    const [library, setLibrary] = useState([]);
+
     const [seconds, setSeconds] = useState(0);
     const [isTimerRunning, setIsTimerRunning] = useState(false);
 
     const STORAGE_KEY = `workout_draft_${dayData.id}`;
+
+    useEffect(() => {
+        fetch('/api/library/exercises').then(res => res.json()).then(setLibrary).catch(console.error);
+    }, []);
 
     useEffect(() => {
         if (dayData) {
@@ -73,8 +44,10 @@ export default function ActiveWorkout({ dayData, onFinish }) {
 
             initialExercises.forEach(ex => {
                 if (!workingData[ex.id]) {
-                    workingData[ex.id] = Array.from({ length: ex.target_sets || 3 }).map((_, i) => ({
-                        setNum: i + 1, weight: ex.target_weight || '', reps: '', rpe: '', completed: false
+                    // Aseguramos que lea target_sets como número
+                    const totalSets = parseInt(ex.target_sets, 10) || 1;
+                    workingData[ex.id] = Array.from({ length: totalSets }).map((_, i) => ({
+                        setNum: i + 1, weight: '', reps: '', rpe: '', completed: false
                     }));
                 }
             });
@@ -91,19 +64,28 @@ export default function ActiveWorkout({ dayData, onFinish }) {
         return `${m}:${s}`;
     };
 
-    // Actions
     const handleAddNewExercise = async (formData) => {
         try {
             const res = await fetch('/api/exercises', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ day_id: dayData.id, name: formData.name, target_sets: formData.target_sets, target_reps: formData.target_reps, target_weight: 0, target_rpe: formData.target_rpe || 0, exercise_order: 999 })
+                body: JSON.stringify({ day_id: dayData.id, ...formData, exercise_order: 999 })
             });
             const data = await res.json();
-            const newEx = { id: data.id, day_id: dayData.id, name: formData.name, target_sets: formData.target_sets, target_reps: formData.target_reps, target_weight: 0, target_rpe: formData.target_rpe || 0 };
+
+            const libEx = library.find(l => l.name.toLowerCase() === formData.name.toLowerCase());
+            const newEx = {
+                id: data.id, day_id: dayData.id, ...formData, library_1rm: libEx ? libEx.one_rep_max : 0
+            };
+
             setExercises(prev => [...prev, newEx]);
-            setSessionData(prev => ({ ...prev, [newEx.id]: Array.from({ length: newEx.target_sets }).map((_, i) => ({ setNum: i + 1, weight: '', reps: '', rpe: '', completed: false })) }));
+
+            const totalSets = parseInt(newEx.target_sets, 10) || 1;
+            setSessionData(prev => ({
+                ...prev,
+                [newEx.id]: Array.from({ length: totalSets }).map((_, i) => ({ setNum: i + 1, weight: '', reps: '', rpe: '', completed: false }))
+            }));
             setModalOpen(false);
-        } catch (e) { alert("Error"); }
+        } catch (e) { alert("Error al crear ejercicio"); }
     };
 
     const updateSet = (id, idx, field, val) => setSessionData(p => { const s = [...(p[id] || [])]; s[idx] = { ...s[idx], [field]: val }; return { ...p, [id]: s }; });
@@ -113,152 +95,169 @@ export default function ActiveWorkout({ dayData, onFinish }) {
     const handleDeleteSet = async (id, idx) => { setSessionData(p => { const s = [...(p[id] || [])]; s.splice(idx, 1); return { ...p, [id]: s.map((set, i) => ({ ...set, setNum: i + 1 })) }; }); await fetch(`/api/exercises/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target_sets: Math.max(0, (sessionData[id]?.length || 1) - 1) }) }); };
 
     const handleSaveWorkout = async () => {
-        const setsToSave = []; const updatePromises = [];
+        const setsToSave = [];
         Object.keys(sessionData).forEach(exId => {
             const ex = exercises.find(e => e.id === parseInt(exId));
             const sets = sessionData[exId];
             if (sets) {
-                sets.forEach(set => { if (set.completed || set.weight || set.reps) setsToSave.push({ exercise_name: ex ? ex.name : 'Unknown', set_number: set.setNum, weight: set.weight, reps: set.reps, rpe: set.rpe, is_completed: set.completed }); });
-                const valid = sets.filter(s => s.weight && s.weight > 0);
-                if (valid.length > 0) { const last = valid[valid.length - 1]; updatePromises.push(fetch(`/api/exercises/${exId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target_weight: last.weight, target_rpe: last.rpe || (ex ? ex.target_rpe : 0) }) })); }
+                sets.forEach(set => {
+                    if (set.completed || set.weight || set.reps) {
+                        setsToSave.push({ exercise_name: ex ? ex.name : 'Unknown', set_number: set.setNum, weight: set.weight, reps: set.reps, rpe: set.rpe, is_completed: set.completed });
+                    }
+                });
             }
         });
-        try { await Promise.all([fetch('/api/workouts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ day_id: dayData.id, notes: 'Log', sets: setsToSave }) }), ...updatePromises]); localStorage.removeItem(STORAGE_KEY); onFinish(); } catch (e) { alert('Error guardando'); }
-    };
-
-    // UI HELPER
-    const SetRow = ({ exId, set, idx, onDelete, onUpdate, onToggle, target }) => {
-        const isDone = set.completed;
-        return (
-            <div className={`grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-2 items-center p-2 rounded-xl mb-2 transition-all duration-300 border ${isDone ? 'bg-green-900/20 border-green-800' : 'bg-gray-800/40 border-transparent hover:border-gray-700'}`}>
-                {/* SET NUM */}
-                <div className="flex flex-col items-center justify-center w-8">
-                    <span className={`text-xs font-bold mb-1 ${isDone ? 'text-green-400' : 'text-gray-500'}`}>SET</span>
-                    <div className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold ${isDone ? 'bg-green-500 text-black' : 'bg-gray-700 text-gray-300'}`}>{set.setNum}</div>
-                </div>
-
-                {/* KG */}
-                <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-gray-500 text-center uppercase font-bold">KG</label>
-                    <input type="number" placeholder={target.weight || '-'} value={set.weight} onChange={(e) => onUpdate(idx, 'weight', e.target.value)}
-                        className={`w-full bg-gray-900/80 border ${isDone ? 'border-green-800 text-green-300' : 'border-gray-700 text-white'} rounded-lg p-2 text-center font-bold outline-none focus:border-primary transition-colors`} />
-                </div>
-
-                {/* REPS */}
-                <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-gray-500 text-center uppercase font-bold">REPS</label>
-                    <input type="number" placeholder={target.reps?.split('-')[0] || '-'} value={set.reps} onChange={(e) => onUpdate(idx, 'reps', e.target.value)}
-                        className={`w-full bg-gray-900/80 border ${isDone ? 'border-green-800 text-green-300' : 'border-gray-700 text-white'} rounded-lg p-2 text-center font-bold outline-none focus:border-primary transition-colors`} />
-                </div>
-
-                {/* RPE */}
-                <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-gray-500 text-center uppercase font-bold">RPE</label>
-                    <input type="number" placeholder={target.rpe || '-'} value={set.rpe} onChange={(e) => onUpdate(idx, 'rpe', e.target.value)}
-                        className={`w-full bg-gray-900/80 border ${isDone ? 'border-green-800 text-green-300' : 'border-gray-700 text-white'} rounded-lg p-2 text-center font-bold outline-none focus:border-primary transition-colors`} />
-                </div>
-
-                {/* ACTIONS */}
-                <div className="flex flex-col gap-1 items-center justify-end h-full pt-4">
-                    <button onClick={() => onDelete(idx)} className="p-1.5 text-gray-600 hover:text-red-400 rounded-full hover:bg-gray-800 mb-1"><X size={12} /></button>
-                    <button onClick={() => onToggle(idx)} className={`p-2 rounded-lg transition-all shadow-lg active:scale-90 ${isDone ? 'bg-green-500 text-black shadow-green-900/20' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}`}>
-                        <Check size={18} strokeWidth={3} />
-                    </button>
-                </div>
-            </div>
-        )
+        try {
+            await fetch('/api/workouts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ day_id: dayData.id, notes: 'Log', sets: setsToSave }) });
+            localStorage.removeItem(STORAGE_KEY);
+            onFinish();
+        } catch (e) { alert('Error guardando'); }
     };
 
     return (
         <div className="min-h-screen bg-background pb-32 animate-fade-in">
-            {/* --- HEADER --- */}
-            <div className="sticky top-0 z-40 bg-background/80 backdrop-blur-lg border-b border-gray-800 px-4 py-3 flex justify-between items-center">
+            <div className="sticky top-0 z-40 bg-background/90 backdrop-blur-lg border-b border-gray-800 px-4 py-3 flex justify-between items-center shadow-md">
                 <button onClick={onFinish} className="p-2 -ml-2 text-gray-400 hover:text-white"><ArrowLeft /></button>
-                <div>
-                    <h1 className="font-bold text-white text-center leading-tight">{dayData.name}</h1>
-                    <div className="flex justify-center items-center gap-2 mt-0.5">
+                <div className="text-center">
+                    <h1 className="font-bold text-white leading-tight">{dayData.name}</h1>
+                    <div className="flex justify-center items-center gap-1.5 mt-0.5">
                         <div className={`w-2 h-2 rounded-full ${isReviewMode ? 'bg-orange-500' : 'bg-green-500 animate-pulse'}`} />
-                        <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">{isReviewMode ? 'MODO REVISIÓN' : 'EN PROGRESO'}</span>
+                        <span className="text-[10px] text-gray-400 uppercase font-bold">{isReviewMode ? 'MODO REVISIÓN' : 'EN PROGRESO'}</span>
                     </div>
                 </div>
-                <div className="w-8"></div> {/* Spacer */}
+                <div className="w-8"></div>
             </div>
 
-            {/* --- LISTA DE EJERCICIOS --- */}
-            <div className="max-w-xl mx-auto p-4 space-y-6">
+            <div className="max-w-xl mx-auto p-3 space-y-6">
                 {exercises.map((ex, i) => {
                     const sets = sessionData[ex.id] || [];
                     const isEditing = editingExerciseId === ex.id;
                     const completedCount = sets.filter(s => s.completed).length;
-                    const totalCount = sets.length;
-                    const progress = (completedCount / totalCount) * 100;
+
+                    const isRPE = ex.load_type === 'rpe';
+
+                    // Cálculo inteligente del placeholder
+                    let intensityPlaceholder = '';
+                    let targetIntensityDisplay = '-'; // Meta específica para mostrar abajo del input
+
+                    if (isRPE && ex.target_value) {
+                        targetIntensityDisplay = `Meta: ${ex.target_value}`;
+                    } else if (ex.load_type === 'percent' && ex.target_value) {
+                        if (ex.library_1rm) {
+                            const calcKg = Math.round(ex.library_1rm * (ex.target_value / 100));
+                            intensityPlaceholder = calcKg.toString();
+                            targetIntensityDisplay = `Meta: ${ex.target_value}%`;
+                        } else {
+                            targetIntensityDisplay = `Meta: ${ex.target_value}%`;
+                        }
+                    } else if (ex.load_type === 'kg' && ex.target_value) {
+                        intensityPlaceholder = ex.target_value.toString();
+                        targetIntensityDisplay = `Meta: ${ex.target_value}kg`;
+                    }
+
+                    const repsPlaceholder = ex.target_reps?.split('-')[0] || '';
 
                     return (
-                        <div key={ex.id} className="bg-surface rounded-2xl border border-gray-800 overflow-hidden shadow-sm">
-                            {/* HEADER EJERCICIO */}
-                            <div className="p-4 bg-gray-800/30 border-b border-gray-800 flex justify-between items-start">
-                                <div className="flex-1">
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <span className="text-primary font-mono text-xs font-bold">#{i + 1}</span>
+                        <div key={ex.id} className="bg-surface rounded-2xl border border-gray-800 overflow-hidden shadow">
+                            <div className="p-4 bg-gray-800/30 border-b border-gray-800">
+                                <div className="flex justify-between items-center">
+                                    <div className="flex items-center gap-2 flex-1">
+                                        <span className="text-primary font-mono text-xs font-bold bg-primary/10 px-1.5 py-0.5 rounded">#{i + 1}</span>
                                         {isEditing ? (
-                                            <input autoFocus defaultValue={ex.name} onBlur={(e) => handleUpdateName(ex.id, e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleUpdateName(ex.id, e.currentTarget.value)} className="bg-gray-900 text-white px-2 rounded w-full border border-primary outline-none" />
+                                            <input autoFocus defaultValue={ex.name} onBlur={(e) => handleUpdateName(ex.id, e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleUpdateName(ex.id, e.currentTarget.value)} className="bg-gray-900 text-white px-2 rounded w-full border border-primary outline-none font-bold" />
                                         ) : (
-                                            <h3 onClick={() => setEditingExerciseId(ex.id)} className="font-bold text-lg text-white leading-none cursor-pointer hover:text-blue-300 transition-colors">{ex.name}</h3>
+                                            <h3 onClick={() => setEditingExerciseId(ex.id)} className="font-bold text-lg text-white leading-none cursor-pointer hover:text-blue-300 truncate">{ex.name}</h3>
                                         )}
                                     </div>
-                                    <p className="text-xs text-gray-500 font-medium">Meta: {ex.target_sets} x {ex.target_reps} {ex.target_weight > 0 && `• ${ex.target_weight}kg`}</p>
+                                    <span className="text-xs text-gray-500 font-bold bg-gray-900 px-2 py-1 rounded ml-2">{completedCount} / {sets.length}</span>
                                 </div>
-                                {/* PROGRESS RING MINI */}
-                                <div className="relative w-8 h-8 flex items-center justify-center">
-                                    <svg className="w-full h-full transform -rotate-90">
-                                        <circle cx="16" cy="16" r="14" stroke="currentColor" strokeWidth="3" fill="transparent" className="text-gray-800" />
-                                        <circle cx="16" cy="16" r="14" stroke="currentColor" strokeWidth="3" fill="transparent" className="text-primary transition-all duration-500" strokeDasharray={88} strokeDashoffset={88 - (88 * progress) / 100} />
-                                    </svg>
-                                    <span className="absolute text-[9px] font-bold text-gray-300">{completedCount}</span>
-                                </div>
+                                {ex.notes && <p className="text-[10px] text-gray-400 mt-2 italic px-1 font-bold">Nota: {ex.notes}</p>}
                             </div>
 
-                            {/* SETS */}
-                            <div className="p-3">
+                            <div className="px-3 py-3 space-y-2">
+                                {/* Las filas de los sets se escriben aquí directamente para que no pierdan foco al escribir */}
                                 {sets.map((set, idx) => (
-                                    <SetRow key={idx} exId={ex.id} set={set} idx={idx} onDelete={() => handleDeleteSet(ex.id, idx)} onUpdate={(i, f, v) => updateSet(ex.id, i, f, v)} onToggle={() => toggleComplete(ex.id, idx)} target={{ weight: ex.target_weight, reps: ex.target_reps, rpe: ex.target_rpe }} />
+                                    <div key={idx} className={`flex items-center justify-between gap-2 p-2.5 rounded-xl transition-colors border ${set.completed ? 'bg-green-900/20 border-green-800/50' : 'bg-gray-800/40 border-transparent hover:border-gray-700'}`}>
+
+                                        {/* Numero Set */}
+                                        <div className="flex flex-col items-center gap-1 w-6">
+                                            <div className={`w-6 h-6 flex items-center justify-center rounded text-xs font-bold ${set.completed ? 'bg-green-500 text-black' : 'bg-gray-700 text-gray-300'}`}>{set.setNum}</div>
+                                        </div>
+
+                                        {/* Inputs Container */}
+                                        <div className="flex gap-4 items-end flex-1 justify-center">
+                                            {/* CARGA / RPE */}
+                                            <div className="flex flex-col items-center">
+                                                <span className="text-[9px] text-gray-400 font-bold mb-1 tracking-widest uppercase">
+                                                    {isRPE ? 'RPE' : (ex.load_type === 'percent' ? 'CARGA' : 'CARGA FIJA')}
+                                                </span>
+                                                <input
+                                                    type="number" step="0.5"
+                                                    placeholder={intensityPlaceholder}
+                                                    value={set.weight}
+                                                    onChange={(e) => updateSet(ex.id, idx, 'weight', e.target.value)}
+                                                    className={`w-16 h-10 bg-gray-900 border ${set.completed ? 'border-green-800 text-green-300' : 'border-gray-700 text-white'} rounded-lg text-center font-bold text-base outline-none focus:border-primary transition-colors placeholder-gray-600 shadow-inner`}
+                                                />
+                                                <span className="text-[9px] text-accent font-bold mt-1 h-3">{targetIntensityDisplay !== '-' ? targetIntensityDisplay : ''}</span>
+                                            </div>
+
+                                            {/* REPS */}
+                                            <div className="flex flex-col items-center">
+                                                <span className="text-[9px] text-gray-400 font-bold mb-1 tracking-widest uppercase">REPS</span>
+                                                <input
+                                                    type="number"
+                                                    placeholder={repsPlaceholder}
+                                                    value={set.reps}
+                                                    onChange={(e) => updateSet(ex.id, idx, 'reps', e.target.value)}
+                                                    className={`w-16 h-10 bg-gray-900 border ${set.completed ? 'border-green-800 text-green-300' : 'border-gray-700 text-white'} rounded-lg text-center font-bold text-base outline-none focus:border-primary transition-colors placeholder-gray-600 shadow-inner`}
+                                                />
+                                                <span className="text-[9px] text-gray-500 font-bold mt-1 h-3">Meta: {ex.target_reps}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Botones de acción */}
+                                        <div className="flex flex-col gap-2 w-8">
+                                            <button onClick={() => toggleComplete(ex.id, idx)} className={`w-8 h-8 flex items-center justify-center rounded-lg shadow-md active:scale-95 transition-all ${set.completed ? 'bg-green-500 text-black' : 'bg-gray-700 text-gray-400 hover:text-white'}`}>
+                                                <Check size={18} strokeWidth={3} />
+                                            </button>
+                                            <button onClick={() => handleDeleteSet(ex.id, idx)} className="w-8 flex items-center justify-center text-gray-600 hover:text-red-400 transition-colors">
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
                                 ))}
-                                <button onClick={() => handleAddSet(ex.id)} className="w-full py-3 mt-2 rounded-xl border border-dashed border-gray-700 text-gray-500 text-sm font-bold hover:bg-gray-800 hover:text-white transition-all flex items-center justify-center gap-2">
-                                    <Plus size={16} /> Agregar Serie
+
+                                <button onClick={() => handleAddSet(ex.id)} className="w-full py-2.5 mt-1 rounded-xl border border-dashed border-gray-700 text-gray-500 text-xs font-bold hover:bg-gray-800 hover:text-white transition-all flex items-center justify-center gap-2">
+                                    <Plus size={14} /> AGREGAR SERIE
                                 </button>
                             </div>
                         </div>
                     );
                 })}
 
-                <button onClick={() => setModalOpen(true)} className="w-full py-4 bg-gray-800 rounded-2xl text-gray-400 font-bold hover:bg-gray-700 hover:text-white transition-all flex items-center justify-center gap-2">
+                <button onClick={() => setModalOpen(true)} className="w-full py-4 border-2 border-dashed border-gray-700 text-gray-400 rounded-2xl hover:text-white hover:border-gray-500 hover:bg-gray-800/30 transition-colors flex items-center justify-center gap-2 font-bold">
                     <Plus size={20} /> AGREGAR EJERCICIO
                 </button>
             </div>
 
-            {/* --- CONTROLES INFERIORES --- */}
             <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background via-background to-transparent pointer-events-none flex flex-col items-center gap-4">
-                {/* TIMER FLOTANTE */}
                 <div className="pointer-events-auto bg-gray-900/90 backdrop-blur-md border border-gray-700 rounded-full px-5 py-2 flex items-center gap-4 shadow-2xl scale-110">
                     <span className="font-mono text-xl font-bold text-white tracking-widest min-w-[60px] text-center">{formatTime(seconds)}</span>
                     <div className="h-6 w-px bg-gray-700"></div>
                     <div className="flex gap-2">
-                        <button onClick={() => setIsTimerRunning(!isTimerRunning)} className={`p-2 rounded-full text-white transition-colors ${isTimerRunning ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-green-600 hover:bg-green-500'}`}>
+                        <button onClick={() => setIsTimerRunning(!isTimerRunning)} className={`p-2 rounded-full text-white transition-colors ${isTimerRunning ? 'bg-yellow-600' : 'bg-green-600'}`}>
                             {isTimerRunning ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
                         </button>
-                        <button onClick={() => { setIsTimerRunning(false); setSeconds(0); }} className="p-2 rounded-full bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white">
-                            <RotateCcw size={16} />
-                        </button>
+                        <button onClick={() => { setIsTimerRunning(false); setSeconds(0); }} className="p-2 rounded-full bg-gray-800 text-gray-400 hover:text-white"><RotateCcw size={16} /></button>
                     </div>
                 </div>
 
-                {/* BOTÓN TERMINAR */}
-                <button onClick={handleSaveWorkout} className="pointer-events-auto w-full max-w-md bg-primary hover:bg-blue-500 text-white font-bold py-4 rounded-2xl shadow-xl shadow-blue-600/20 flex items-center justify-center gap-2 transition-transform active:scale-95">
+                <button onClick={handleSaveWorkout} className="pointer-events-auto w-full max-w-md bg-primary hover:bg-blue-500 text-white font-bold py-4 rounded-2xl shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-transform">
                     <Save size={20} /> {isReviewMode ? 'Guardar Cambios' : 'Terminar Entrenamiento'}
                 </button>
             </div>
 
-            <ExerciseModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onSave={handleAddNewExercise} />
+            <ExerciseConfigModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onSave={handleAddNewExercise} library={library} />
         </div>
     );
 }

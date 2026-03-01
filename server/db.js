@@ -45,6 +45,20 @@ const initScript = `
     FOREIGN KEY(day_id) REFERENCES program_days(id) ON DELETE CASCADE
   );
 
+CREATE TABLE IF NOT EXISTS exercises (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    day_id INTEGER,
+    name TEXT NOT NULL,
+    target_sets INTEGER DEFAULT 3,
+    target_reps TEXT,
+    -- CAMPOS CLAVE PARA TU NUEVO FLUJO --
+    load_type TEXT DEFAULT 'kg', -- 'kg', 'percent', 'rpe'
+    target_value REAL,           -- El valor numérico (ej: 80 para 80kg, 70 para 70%, 8 para RPE 8)
+    notes TEXT,
+    exercise_order INTEGER,
+    FOREIGN KEY(day_id) REFERENCES program_days(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS workout_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     day_id INTEGER,
@@ -67,6 +81,12 @@ const initScript = `
   CREATE TABLE IF NOT EXISTS exercise_library (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
+    one_rep_max REAL DEFAULT 0 -- AQUÍ SE GUARDA TU 1RM GLOBAL
+  );
+
+  CREATE TABLE IF NOT EXISTS exercise_library (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
     one_rep_max REAL DEFAULT 0 -- NUEVO: Para guardar el 1RM global
   );
 
@@ -77,6 +97,8 @@ const initScript = `
     percentage INTEGER DEFAULT 100,
     FOREIGN KEY(exercise_id) REFERENCES exercise_library(id) ON DELETE CASCADE
   );
+
+
 `;
 
 db.exec(initScript);
@@ -87,6 +109,7 @@ try {
   db.exec("ALTER TABLE exercises ADD COLUMN target_value REAL");
   db.exec("ALTER TABLE exercises ADD COLUMN rest_seconds INTEGER DEFAULT 90");
   db.exec("ALTER TABLE exercise_library ADD COLUMN one_rep_max REAL DEFAULT 0");
+
 } catch (e) {
   // Ignoramos error si las columnas ya existen
 }
