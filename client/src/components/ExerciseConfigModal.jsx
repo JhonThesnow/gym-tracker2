@@ -1,186 +1,236 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { X, Calculator, Dumbbell, Percent } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Calculator, Dumbbell, Percent, Activity, Plus, Trash2, Check } from 'lucide-react';
 
-const ExerciseConfigModal = ({ isOpen, onClose, onSave, initialData, library }) => {
-    const [formData, setFormData] = useState({
-        name: '', target_sets: 3, target_reps: '8-12', load_type: 'kg', target_value: '', target_rpe: '', notes: ''
-    });
-
+export default function ExerciseConfigModal({ isOpen, onClose, onSave, initialData, library }) {
+    const [name, setName] = useState('');
+    const [loadType, setLoadType] = useState('kg');
+    const [notes, setNotes] = useState('');
+    const [setsConfig, setSetsConfig] = useState([{ reps: '8-12', value: '', rpe: '' }]);
     const [current1RM, setCurrent1RM] = useState(0);
-    const [showCalculator, setShowCalculator] = useState(false);
-    const [calcWeight, setCalcWeight] = useState('');
-    const [calcReps, setCalcReps] = useState('');
+
+    // Estados para la calculadora
+    const [calcW, setCalcW] = useState('');
+    const [calcR, setCalcR] = useState('');
 
     useEffect(() => {
         if (isOpen) {
-            setFormData(initialData || {
-                name: '', target_sets: 3, target_reps: '8-12', load_type: 'kg', target_value: '', target_rpe: '', notes: ''
-            });
-            setShowCalculator(false);
-            setCalcWeight('');
-            setCalcReps('');
+            setName(initialData?.name || '');
+            setLoadType(initialData?.load_type || 'kg');
+            setNotes(initialData?.notes || '');
+            setCalcW('');
+            setCalcR('');
 
-            if (initialData?.name && library) {
-                const libEx = library.find(l => l.name.toLowerCase() === initialData.name.toLowerCase());
-                setCurrent1RM(libEx?.one_rep_max || 0);
+            let parsed = null;
+            if (initialData?.sets_config) {
+                try { parsed = typeof initialData.sets_config === 'string' ? JSON.parse(initialData.sets_config) : initialData.sets_config; }
+                catch (e) { }
+            }
+
+            if (parsed && Array.isArray(parsed) && parsed.length > 0) {
+                setSetsConfig(parsed);
+            } else if (initialData?.target_sets) {
+                setSetsConfig(Array.from({ length: initialData.target_sets }).map(() => ({
+                    reps: initialData.target_reps || '',
+                    value: initialData.target_value || '',
+                    rpe: initialData.target_rpe || ''
+                })));
             } else {
-                setCurrent1RM(0);
+                setSetsConfig([{ reps: '8-12', value: '', rpe: '' }]);
             }
         }
-    }, [isOpen, initialData, library]);
+    }, [isOpen, initialData]);
 
     useEffect(() => {
-        if (formData.name && library) {
-            const libEx = library.find(l => l.name.toLowerCase() === formData.name.toLowerCase());
+        if (name && library) {
+            const libEx = library.find(l => l.name.toLowerCase() === name.toLowerCase());
             setCurrent1RM(libEx?.one_rep_max || 0);
         }
-    }, [formData.name, library]);
+    }, [name, library]);
 
-    const calculate1RM = () => {
-        const w = parseFloat(calcWeight);
-        const r = parseInt(calcReps);
-        if (!w || !r) return;
-        const estimated = Math.round(w * (1 + r / 30));
-        setCurrent1RM(estimated);
-        setShowCalculator(false);
+    const handleSave1RM = async (estimated) => {
+        try {
+            await fetch('/api/library/exercises/1rm', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, one_rep_max: estimated })
+            });
+            setCurrent1RM(estimated);
+        } catch (e) {
+            console.error("Error guardando 1RM");
+        }
     };
 
-    const calculatedWeightFromPercent = useMemo(() => {
-        if (formData.load_type === 'percent' && formData.target_value && current1RM) {
-            return Math.round(current1RM * (parseFloat(formData.target_value) / 100));
-        }
-        return null;
-    }, [formData.load_type, formData.target_value, current1RM]);
+    const handleAddSet = () => {
+        const lastSet = setsConfig[setsConfig.length - 1] || { reps: '', value: '', rpe: '' };
+        setSetsConfig([...setsConfig, { ...lastSet }]);
+    };
+
+    const updateSet = (index, field, val) => {
+        const newSets = [...setsConfig];
+        newSets[index][field] = val;
+        setSetsConfig(newSets);
+    };
+
+    const removeSet = (index) => {
+        setSetsConfig(setsConfig.filter((_, i) => i !== index));
+    };
 
     const handleSubmit = (e) => {
         e.preventDefault();
-
-        if (current1RM > 0 && formData.name) {
-            fetch('/api/library/exercises/1rm', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: formData.name, one_rep_max: current1RM })
-            }).catch(err => console.error(err));
-        }
-
-        // CORRECCIÓN CRÍTICA: Asegurar que sets sean números reales (parseInt) para no romper ActiveWorkout
-        const payload = {
-            ...formData,
-            target_sets: parseInt(formData.target_sets, 10) || 1,
-            target_value: formData.target_value === '' ? null : parseFloat(formData.target_value),
-            target_rpe: formData.target_rpe === '' ? null : parseFloat(formData.target_rpe)
-        };
-
-        onSave(payload);
+        onSave({
+            id: initialData?.id, // Clave para saber si es edición
+            name,
+            load_type: loadType,
+            notes,
+            target_sets: setsConfig.length,
+            sets_config: setsConfig,
+            target_reps: setsConfig[0]?.reps || '',
+            target_value: setsConfig[0]?.value || '',
+            target_rpe: setsConfig[0]?.rpe || ''
+        });
     };
 
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-[100] backdrop-blur-sm animate-fade-in">
-            <div className="bg-surface border border-gray-700 p-6 rounded-3xl w-full max-w-md shadow-2xl">
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-2xl font-bold text-white">{initialData ? 'Editar Ejercicio' : 'Nuevo Ejercicio'}</h3>
-                    <button onClick={onClose} className="p-2 bg-gray-800 rounded-full text-gray-400 hover:text-white"><X size={20} /></button>
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-50 backdrop-blur-sm overflow-y-auto">
+            <div className="bg-surface border border-gray-800 rounded-2xl w-full max-w-md shadow-2xl relative my-8">
+                <div className="flex justify-between items-center p-5 border-b border-gray-800">
+                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                        {initialData?.id ? 'Editar Configuración' : 'Nuevo Ejercicio'}
+                    </h2>
+                    <button onClick={onClose} className="p-2 bg-gray-900 rounded-full text-gray-400 hover:text-white transition-colors">
+                        <X size={20} />
+                    </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-5">
-                    <div>
-                        <label className="block text-xs text-gray-500 mb-2 uppercase font-bold tracking-wider">Ejercicio</label>
-                        <input required list="library-suggestions" className="w-full bg-background border border-gray-700 rounded-xl p-4 text-white focus:border-primary outline-none font-bold text-lg"
-                            value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} autoFocus placeholder="Buscar..." autoComplete="off" />
-                        <datalist id="library-suggestions">{library && library.map(ex => <option key={ex.id} value={ex.name} />)}</datalist>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
+                <form onSubmit={handleSubmit} className="p-5 space-y-6">
+                    <div className="space-y-4">
                         <div>
-                            <label className="block text-xs text-gray-500 mb-2 uppercase font-bold">Sets</label>
-                            <input type="number" className="w-full bg-background border border-gray-700 rounded-xl p-3 text-white text-center font-bold text-lg outline-none focus:border-primary"
-                                value={formData.target_sets} onChange={e => setFormData({ ...formData, target_sets: e.target.value })} />
+                            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Nombre del Ejercicio</label>
+                            <input
+                                required autoFocus list="exercise-library"
+                                className="w-full bg-gray-900 border border-gray-700 rounded-xl p-3 text-white font-bold focus:border-primary outline-none transition-colors shadow-inner"
+                                value={name} onChange={e => setName(e.target.value)}
+                                placeholder="Ej: Press Banca"
+                            />
+                            {library && (
+                                <datalist id="exercise-library">
+                                    {library.map((ex, i) => <option key={i} value={ex.name} />)}
+                                </datalist>
+                            )}
+                            {current1RM > 0 && (
+                                <p className="text-xs text-green-400 mt-1.5 font-bold flex items-center gap-1">
+                                    <Check size={12} /> 1RM Registrado: {current1RM}kg
+                                </p>
+                            )}
                         </div>
-                        <div>
-                            <label className="block text-xs text-gray-500 mb-2 uppercase font-bold">Reps Meta</label>
-                            <input className="w-full bg-background border border-gray-700 rounded-xl p-3 text-white text-center font-bold text-lg outline-none focus:border-primary"
-                                value={formData.target_reps} onChange={e => setFormData({ ...formData, target_reps: e.target.value })} />
-                        </div>
-                    </div>
 
-                    <div className="bg-gray-800/40 p-4 rounded-2xl border border-gray-700/50">
-                        <div className="flex justify-between items-center mb-3">
-                            <span className="text-gray-400 text-xs font-bold uppercase flex items-center gap-2"><Dumbbell size={14} /> Tu 1RM Actual</span>
-                            <div className="flex items-center gap-3">
-                                <span className="text-white font-bold text-xl font-mono">{current1RM > 0 ? `${current1RM} kg` : '?'}</span>
-                                <button type="button" onClick={() => setShowCalculator(!showCalculator)} className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-300 transition-colors" title="Calculadora">
-                                    <Calculator size={18} />
-                                </button>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Tipo de Carga</label>
+                            <div className="flex gap-2 p-1 bg-gray-900 rounded-xl border border-gray-800">
+                                {[
+                                    { id: 'kg', label: 'Kg Fijos', icon: Dumbbell },
+                                    { id: 'percent', label: '% del 1RM', icon: Percent },
+                                    { id: 'rpe', label: 'Solo RPE', icon: Activity }
+                                ].map(type => (
+                                    <button
+                                        key={type.id} type="button"
+                                        onClick={() => setLoadType(type.id)}
+                                        className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-lg text-xs font-bold transition-all ${loadType === type.id ? 'bg-gray-700 text-white shadow-md' : 'text-gray-500 hover:text-gray-300'}`}
+                                    >
+                                        <type.icon size={16} /> {type.label}
+                                    </button>
+                                ))}
                             </div>
                         </div>
 
-                        {showCalculator && (
-                            <div className="mt-3 pt-3 border-t border-gray-700/50 animate-fade-in">
-                                <p className="text-[10px] text-gray-500 mb-2">Ingresa un récord reciente para estimar:</p>
-                                <div className="flex gap-2">
-                                    <input type="number" placeholder="Kg" className="flex-1 bg-background border border-gray-700 rounded-xl p-3 text-white text-center font-bold outline-none focus:border-primary"
-                                        value={calcWeight} onChange={e => setCalcWeight(e.target.value)} />
-                                    <input type="number" placeholder="Reps" className="flex-1 bg-background border border-gray-700 rounded-xl p-3 text-white text-center font-bold outline-none focus:border-primary"
-                                        value={calcReps} onChange={e => setCalcReps(e.target.value)} />
-                                    <button type="button" onClick={calculate1RM} className="bg-accent hover:bg-blue-500 text-white px-4 rounded-xl font-bold">Calc</button>
+                        {/* Calculadora de 1RM Condicional */}
+                        {loadType === 'percent' && (
+                            <div className="bg-blue-900/10 border border-blue-900/40 rounded-xl p-3 space-y-3 shadow-inner">
+                                <div className="flex items-center gap-2 text-blue-400 font-bold text-[10px] uppercase tracking-wider">
+                                    <Calculator size={14} /> Calculadora de 1RM Estimar
                                 </div>
-                            </div>
-                        )}
-                    </div>
-
-                    <div>
-                        <label className="block text-xs text-gray-500 mb-2 uppercase font-bold tracking-wider">Definir Carga / Esfuerzo</label>
-                        <div className="flex gap-3">
-                            <select
-                                className="bg-background border border-gray-700 rounded-xl p-3 text-white font-bold outline-none focus:border-primary appearance-none text-center pl-5 pr-8"
-                                value={formData.load_type}
-                                onChange={e => setFormData({ ...formData, load_type: e.target.value })}
-                                style={{ backgroundImage: `url('data:image/svg+xml;charset=US-ASCII,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%236b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down"><path d="m6 9 6 6 6-6"/></svg>')`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center', backgroundSize: '16px' }}
-                            >
-                                <option value="kg">Carga Fija (Kg)</option>
-                                <option value="percent">% Porcentaje</option>
-                                <option value="rpe">RPE</option>
-                            </select>
-
-                            <div className="flex-1 relative">
-                                <input
-                                    type="number" step="0.5"
-                                    className={`w-full bg-background border border-gray-700 rounded-xl p-3 text-white text-center font-bold text-lg outline-none focus:border-primary ${formData.load_type === 'percent' && current1RM ? 'border-accent/50' : ''}`}
-                                    placeholder={formData.load_type === 'rpe' ? 'Ej: 8' : 'Valor...'}
-                                    value={formData.target_value}
-                                    onChange={e => setFormData({ ...formData, target_value: e.target.value })}
-                                />
-                                {formData.load_type === 'percent' && (
-                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none">
-                                        <Percent size={16} />
+                                <div className="flex gap-2 items-center">
+                                    <input type="number" placeholder="Kg usados" value={calcW} onChange={e => setCalcW(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-white text-sm text-center outline-none focus:border-blue-500" />
+                                    <span className="text-gray-500 font-bold text-xs">x</span>
+                                    <input type="number" placeholder="Reps" value={calcR} onChange={e => setCalcR(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-white text-sm text-center outline-none focus:border-blue-500" />
+                                    <div className="bg-gray-800 text-white font-bold rounded-lg px-3 py-2 text-sm border border-gray-700 whitespace-nowrap">
+                                        {calcW && calcR ? Math.round(calcW * (1 + calcR / 30)) : 0} kg
                                     </div>
+                                </div>
+                                {calcW && calcR && (
+                                    <button type="button" onClick={() => handleSave1RM(Math.round(calcW * (1 + calcR / 30)))} className="w-full py-2 bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 rounded-lg text-xs font-bold transition-colors">
+                                        Guardar en Librería
+                                    </button>
                                 )}
                             </div>
-                        </div>
-
-                        {calculatedWeightFromPercent !== null && (
-                            <p className="text-center text-sm text-accent mt-2 font-bold animate-fade-in">
-                                Equivale a: {calculatedWeightFromPercent} kg
-                            </p>
                         )}
                     </div>
 
-                    <div>
-                        <label className="block text-xs text-gray-500 mb-2 uppercase font-bold">Notas o RPE Adicional (Opcional)</label>
-                        <input className="w-full bg-background border border-gray-700 rounded-xl p-3 text-white outline-none focus:border-primary"
-                            placeholder="Ej: Pausa abajo, tempo lento..."
-                            value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} />
+                    <div className="bg-gray-900/50 rounded-xl p-4 border border-gray-800 space-y-3">
+                        <div className="flex justify-between items-end mb-2">
+                            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                                <Activity size={16} className="text-primary" /> Series & Objetivos
+                            </h3>
+                            <span className="text-xs text-gray-500 font-bold bg-gray-800 px-2 py-1 rounded-md">{setsConfig.length} Series</span>
+                        </div>
+
+                        <div className="flex text-[10px] text-gray-500 font-bold uppercase tracking-wider px-1">
+                            <span className="w-8 text-center">Set</span>
+                            <span className="flex-1 text-center">Reps</span>
+                            {loadType !== 'rpe' && <span className="flex-1 text-center">Target ({loadType === 'percent' ? '%' : 'Kg'})</span>}
+                            <span className="flex-1 text-center">RPE</span>
+                            <span className="w-8"></span>
+                        </div>
+
+                        <div className="space-y-2">
+                            {setsConfig.map((set, idx) => (
+                                <div key={idx} className="flex items-center gap-2 bg-gray-900 border border-gray-700 p-2 rounded-xl focus-within:border-primary transition-colors">
+                                    <span className="w-6 text-center text-xs font-bold text-gray-500">{idx + 1}</span>
+                                    <input
+                                        type="text" placeholder="Ej: 8-12"
+                                        value={set.reps} onChange={(e) => updateSet(idx, 'reps', e.target.value)}
+                                        className="flex-1 w-full bg-transparent text-center text-sm font-bold text-white outline-none placeholder-gray-600"
+                                    />
+                                    {loadType !== 'rpe' && (
+                                        <input
+                                            type="number" step="0.5" placeholder={loadType === 'percent' ? '%' : 'Kg'}
+                                            value={set.value} onChange={(e) => updateSet(idx, 'value', e.target.value)}
+                                            className="flex-1 w-full bg-transparent text-center text-sm font-bold text-accent outline-none placeholder-gray-600 border-l border-gray-800 pl-1"
+                                        />
+                                    )}
+                                    <input
+                                        type="number" step="0.5" placeholder="-"
+                                        value={set.rpe} onChange={(e) => updateSet(idx, 'rpe', e.target.value)}
+                                        className="flex-1 w-full bg-transparent text-center text-sm font-bold text-yellow-500 outline-none placeholder-gray-600 border-l border-gray-800 pl-1"
+                                    />
+                                    <button type="button" onClick={() => removeSet(idx)} disabled={setsConfig.length === 1} className="w-8 flex justify-center text-gray-600 hover:text-red-400 disabled:opacity-20">
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+
+                        <button type="button" onClick={handleAddSet} className="w-full py-2.5 mt-2 rounded-lg border-2 border-dashed border-gray-700 text-gray-400 text-xs font-bold hover:bg-gray-800 hover:text-white transition-all flex items-center justify-center gap-2">
+                            <Plus size={16} /> AGREGAR SERIE
+                        </button>
                     </div>
 
-                    <button type="submit" className="w-full bg-primary hover:bg-blue-600 text-white p-4 rounded-2xl font-bold mt-4 shadow-lg shadow-blue-500/20 active:scale-95 transition-transform">
-                        Guardar Ejercicio
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Notas / Tempo</label>
+                        <textarea
+                            className="w-full bg-gray-900 border border-gray-700 rounded-xl p-3 text-sm text-gray-300 focus:border-primary outline-none resize-none h-20 shadow-inner transition-colors"
+                            value={notes} onChange={e => setNotes(e.target.value)}
+                            placeholder="Ej: Bajada de 3 segundos, pausa abajo."
+                        />
+                    </div>
+
+                    <button type="submit" disabled={!name} className="w-full bg-primary hover:bg-blue-500 text-white p-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-all disabled:opacity-50">
+                        {initialData?.id ? 'GUARDAR CAMBIOS' : 'CREAR EJERCICIO'}
                     </button>
                 </form>
             </div>
         </div>
     );
-};
-
-export default ExerciseConfigModal;
+}

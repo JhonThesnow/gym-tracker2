@@ -1,3 +1,4 @@
+// server/index.js
 const express = require('express');
 const cors = require('cors');
 const db = require('./db');
@@ -5,6 +6,15 @@ const db = require('./db');
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// --- INICIALIZACIÓN AUTOMÁTICA DE BASE DE DATOS ---
+// Agregamos la columna sets_config a la tabla exercises si no existe.
+try {
+    db.prepare('ALTER TABLE exercises ADD COLUMN sets_config TEXT').run();
+    console.log("Columna sets_config agregada exitosamente.");
+} catch (err) {
+    // Si la columna ya existe, SQLite arrojará un error, lo ignoramos.
+}
 
 // --- PROGRAMAS ---
 app.get('/api/programs', (req, res) => {
@@ -118,15 +128,17 @@ app.post('/api/weeks/:id/reorder-days', (req, res) => {
 // --- EJERCICIOS ---
 app.post('/api/exercises', (req, res) => {
     try {
-        const { day_id, name, target_sets, target_reps, target_value, load_type, target_rpe, notes, exercise_order } = req.body;
-        // Validación de nulls segura para SQLite
+        const { day_id, name, target_sets, target_reps, target_value, load_type, target_rpe, notes, exercise_order, sets_config } = req.body;
         const safeTargetValue = target_value !== '' && target_value !== null ? parseFloat(target_value) : null;
         const safeTargetRPE = target_rpe !== '' && target_rpe !== null ? parseFloat(target_rpe) : null;
 
+        // Convertimos el arreglo de configuración dinámica a un string JSON
+        const safeSetsConfig = sets_config ? JSON.stringify(sets_config) : null;
+
         const info = db.prepare(`
-            INSERT INTO exercises (day_id, name, target_sets, target_reps, target_value, load_type, target_rpe, notes, exercise_order)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(day_id, name, target_sets, target_reps, safeTargetValue, load_type || 'kg', safeTargetRPE, notes || '', exercise_order || 999);
+            INSERT INTO exercises (day_id, name, target_sets, target_reps, target_value, load_type, target_rpe, notes, exercise_order, sets_config)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(day_id, name, target_sets, target_reps, safeTargetValue, load_type || 'kg', safeTargetRPE, notes || '', exercise_order || 999, safeSetsConfig);
 
         res.json({ id: info.lastInsertRowid });
     } catch (err) {
@@ -138,11 +150,13 @@ app.post('/api/exercises', (req, res) => {
 app.patch('/api/exercises/:id', (req, res) => {
     try {
         const { id } = req.params;
-        const updates = req.body;
+        const updates = { ...req.body };
 
-        // Limpiamos los valores vacíos antes de hacer el update
         if (updates.target_value === '') updates.target_value = null;
         if (updates.target_rpe === '') updates.target_rpe = null;
+        if (updates.sets_config !== undefined && typeof updates.sets_config !== 'string') {
+            updates.sets_config = JSON.stringify(updates.sets_config);
+        }
 
         const fields = Object.keys(updates).map(key => `${key} = ?`).join(', ');
         const values = Object.values(updates);
@@ -222,6 +236,27 @@ app.post('/api/library/exercises', (req, res) => {
             return exerciseId;
         });
         res.json({ id: transaction() });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/library/exercises/:id', (req, res) => {
+    try {
+        const { name, muscles } = req.body;
+        const { id } = req.params;
+        if (!name) return res.status(400).json({ error: "Nombre requerido" });
+
+        const transaction = db.transaction(() => {
+            db.prepare('UPDATE exercise_library SET name = ? WHERE id = ?').run(name, id);
+            db.prepare('DELETE FROM exercise_muscles WHERE exercise_id = ?').run(id);
+            if (muscles && muscles.length > 0) {
+                const insertMuscle = db.prepare('INSERT INTO exercise_muscles (exercise_id, muscle_name, percentage) VALUES (?, ?, ?)');
+                for (const m of muscles) {
+                    insertMuscle.run(id, m.muscle_name, parseInt(m.percentage));
+                }
+            }
+        });
+        transaction();
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -1,9 +1,24 @@
+// client/src/pages/ExercisesIndex.jsx
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Trash2, X, Dumbbell } from 'lucide-react';
+import { Plus, Search, Trash2, X, Dumbbell, Edit2 } from 'lucide-react';
 
-const AddExerciseModal = ({ isOpen, onClose, onSave }) => {
+const ExerciseFormModal = ({ isOpen, onClose, onSave, initialData }) => {
     const [name, setName] = useState('');
     const [muscles, setMuscles] = useState([{ muscle_name: '', percentage: 100 }]);
+
+    useEffect(() => {
+        if (isOpen) {
+            if (initialData) {
+                setName(initialData.name || '');
+                setMuscles(initialData.muscles && initialData.muscles.length > 0
+                    ? initialData.muscles
+                    : [{ muscle_name: '', percentage: 100 }]);
+            } else {
+                setName('');
+                setMuscles([{ muscle_name: '', percentage: 100 }]);
+            }
+        }
+    }, [initialData, isOpen]);
 
     if (!isOpen) return null;
 
@@ -21,14 +36,20 @@ const AddExerciseModal = ({ isOpen, onClose, onSave }) => {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        onSave({ name, muscles: muscles.filter(m => m.muscle_name.trim() !== '') });
+        onSave({
+            id: initialData?.id,
+            name,
+            muscles: muscles.filter(m => m.muscle_name.trim() !== '')
+        });
     };
 
     return (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
             <div className="bg-surface border border-gray-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-white">Nuevo Ejercicio</h2>
+                    <h2 className="text-xl font-bold text-white">
+                        {initialData ? 'Editar Ejercicio' : 'Nuevo Ejercicio'}
+                    </h2>
                     <button onClick={onClose}><X className="text-gray-400 hover:text-white" /></button>
                 </div>
 
@@ -83,9 +104,9 @@ const AddExerciseModal = ({ isOpen, onClose, onSave }) => {
                     <button
                         type="submit"
                         disabled={!name}
-                        className="w-full bg-primary hover:bg-blue-600 text-white p-3 rounded-xl font-bold mt-4 disabled:opacity-50"
+                        className="w-full bg-primary hover:bg-blue-600 text-white p-3 rounded-xl font-bold mt-4 disabled:opacity-50 transition-colors"
                     >
-                        Guardar Ejercicio
+                        {initialData ? 'Actualizar Ejercicio' : 'Guardar Ejercicio'}
                     </button>
                 </form>
             </div>
@@ -98,6 +119,7 @@ export default function ExercisesIndex() {
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingExercise, setEditingExercise] = useState(null);
 
     const fetchExercises = async () => {
         try {
@@ -117,12 +139,23 @@ export default function ExercisesIndex() {
 
     const handleSave = async (data) => {
         try {
-            await fetch('/api/library/exercises', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
+            if (data.id) {
+                // Modo Edición
+                await fetch(`/api/library/exercises/${data.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+            } else {
+                // Modo Creación
+                await fetch('/api/library/exercises', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+            }
             setIsModalOpen(false);
+            setEditingExercise(null);
             fetchExercises();
         } catch (error) {
             alert("Error al guardar");
@@ -135,6 +168,16 @@ export default function ExercisesIndex() {
         fetchExercises();
     };
 
+    const openEditModal = (ex) => {
+        setEditingExercise(ex);
+        setIsModalOpen(true);
+    };
+
+    const openCreateModal = () => {
+        setEditingExercise(null);
+        setIsModalOpen(true);
+    };
+
     const filtered = exercises.filter(e => e.name.toLowerCase().includes(search.toLowerCase()));
 
     return (
@@ -144,7 +187,7 @@ export default function ExercisesIndex() {
                     <h1 className="text-3xl font-bold text-white">Índice de Ejercicios</h1>
                     <p className="text-gray-400 text-sm">Biblioteca global y porcentajes musculares</p>
                 </div>
-                <button onClick={() => setIsModalOpen(true)} className="bg-primary hover:bg-blue-600 text-white p-3 rounded-full shadow-lg shadow-blue-900/20">
+                <button onClick={openCreateModal} className="bg-primary hover:bg-blue-600 text-white p-3 rounded-full shadow-lg shadow-blue-900/20 transition-transform active:scale-95">
                     <Plus size={24} />
                 </button>
             </div>
@@ -154,7 +197,7 @@ export default function ExercisesIndex() {
                 <input
                     type="text"
                     placeholder="Buscar ejercicio..."
-                    className="w-full bg-surface border border-gray-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-primary outline-none"
+                    className="w-full bg-surface border border-gray-800 rounded-xl py-3 pl-10 pr-4 text-white focus:border-primary outline-none transition-colors"
                     value={search}
                     onChange={e => setSearch(e.target.value)}
                 />
@@ -167,10 +210,15 @@ export default function ExercisesIndex() {
                     {filtered.map(ex => (
                         <div key={ex.id} className="bg-surface border border-gray-800 rounded-xl p-4 hover:border-gray-600 transition-all group">
                             <div className="flex justify-between items-start mb-3">
-                                <h3 className="font-bold text-white text-lg">{ex.name}</h3>
-                                <button onClick={() => handleDelete(ex.id)} className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Trash2 size={16} />
-                                </button>
+                                <h3 className="font-bold text-white text-lg pr-4">{ex.name}</h3>
+                                <div className="flex gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                                    <button onClick={() => openEditModal(ex)} className="text-gray-500 hover:text-blue-400">
+                                        <Edit2 size={16} />
+                                    </button>
+                                    <button onClick={() => handleDelete(ex.id)} className="text-gray-500 hover:text-red-400">
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="space-y-2">
@@ -178,7 +226,7 @@ export default function ExercisesIndex() {
                                     ex.muscles.map((m, i) => (
                                         <div key={i} className="flex items-center gap-2">
                                             <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
-                                                <div className="h-full bg-accent" style={{ width: `${m.percentage}%` }} />
+                                                <div className="h-full bg-accent transition-all" style={{ width: `${m.percentage}%` }} />
                                             </div>
                                             <span className="text-xs text-gray-400 w-24 text-right truncate">
                                                 {m.muscle_name} <span className="text-white font-bold">{m.percentage}%</span>
@@ -201,7 +249,12 @@ export default function ExercisesIndex() {
                 </div>
             )}
 
-            <AddExerciseModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSave} />
+            <ExerciseFormModal
+                isOpen={isModalOpen}
+                onClose={() => { setIsModalOpen(false); setEditingExercise(null); }}
+                onSave={handleSave}
+                initialData={editingExercise}
+            />
         </div>
     );
 }
